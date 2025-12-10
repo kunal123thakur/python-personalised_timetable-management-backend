@@ -1,5 +1,6 @@
 import os
 import json
+import re
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -206,12 +207,9 @@ def get_daily_ai_analysis(stats: dict):
     if not api_key:
         return {"tips": ["Add GROQ_API_KEY to .env for AI tips."], "score": 50}
     
-    chat = ChatGroq(temperature=0, groq_api_key=api_key, model_name="llama3-70b-8192")
+    chat = ChatGroq(temperature=0, groq_api_key=api_key, model_name="llama-3.3-70b-versatile")
     
     system = "You are a productivity expert. Analyze the daily stats and provide: 1. A productivity score (0-100). 2. Three specific, actionable tips."
-    human = f"Stats: {json.dumps(stats)}"
-    
-    prompt = ChatPromptTemplate.from_messages([("system", system), ("human", human)])
     
     # Define structure for output parsing (or just regex it)
     # For simplicity, let's ask for JSON
@@ -221,24 +219,31 @@ def get_daily_ai_analysis(stats: dict):
         "tips": ["string", "string", "string"]
     }
     
+    # Pass inputs as variables to avoid curly brace parsing issues
     prompt_with_format = ChatPromptTemplate.from_messages([
-        ("system", system + " Respond in JSON format: " + json.dumps(json_schema)),
-        ("human", human)
+        ("system", "{system_message} Respond in JSON format: {schema}"),
+        ("human", "Stats: {stats}")
     ])
     
     chain = prompt_with_format | chat | StrOutputParser()
     
     try:
-        response = chain.invoke({})
-        # Extract JSON from response (handle potential markdown blocks)
-        cleaned = response.strip()
-        if cleaned.startswith("```json"):
-            cleaned = cleaned.split("```json")[1]
-        if cleaned.endswith("```"):
-            cleaned = cleaned.split("```")[0]
+        response = chain.invoke({
+            "system_message": system,
+            "schema": json.dumps(json_schema),
+            "stats": json.dumps(stats)
+        })
         
-        data = json.loads(cleaned)
-        return data
+        # Robust JSON extraction
+        json_match = re.search(r"\{.*\}", response, re.DOTALL)
+        if json_match:
+            cleaned = json_match.group(0)
+            data = json.loads(cleaned)
+            return data
+        else:
+            print(f"AI Response (No JSON): {response}")
+            raise ValueError("No JSON found in response")
+
     except Exception as e:
         print(f"Error calling AI: {e}")
         return {"tips": ["Stay focused!", "Take breaks.", "Plan ahead."], "score": 75}
@@ -248,10 +253,9 @@ def get_weekly_ai_analysis(stats: dict):
     if not api_key:
         return {"tips": ["Add GROQ_API_KEY to .env"], "productivity_score": 50, "consistency_score": 50}
         
-    chat = ChatGroq(temperature=0, groq_api_key=api_key, model_name="llama3-70b-8192")
+    chat = ChatGroq(temperature=0, groq_api_key=api_key, model_name="llama-3.3-70b-versatile")
     
     system = "You are a productivity expert. Analyze weekly stats. Provide: 1. Weekly productivity score (0-100). 2. Consistency score (0-100). 3. Three strategic tips for next week."
-    human = f"Stats: {json.dumps(stats)}"
     
     json_schema = {
         "productivity_score": "integer",
@@ -259,23 +263,31 @@ def get_weekly_ai_analysis(stats: dict):
         "tips": ["string", "string", "string"]
     }
     
+    # Pass inputs as variables to avoid curly brace parsing issues
     prompt_with_format = ChatPromptTemplate.from_messages([
-        ("system", system + " Respond in JSON format: " + json.dumps(json_schema)),
-        ("human", human)
+        ("system", "{system_message} Respond in JSON format: {schema}"),
+        ("human", "Stats: {stats}")
     ])
     
     chain = prompt_with_format | chat | StrOutputParser()
     
     try:
-        response = chain.invoke({})
-        cleaned = response.strip()
-        if cleaned.startswith("```json"):
-            cleaned = cleaned.split("```json")[1]
-        if cleaned.endswith("```"):
-            cleaned = cleaned.split("```")[0]
-            
-        data = json.loads(cleaned)
-        return data
+        response = chain.invoke({
+            "system_message": system,
+            "schema": json.dumps(json_schema),
+            "stats": json.dumps(stats)
+        })
+        
+        # Robust JSON extraction
+        json_match = re.search(r"\{.*\}", response, re.DOTALL)
+        if json_match:
+            cleaned = json_match.group(0)
+            data = json.loads(cleaned)
+            return data
+        else:
+            print(f"AI Response (No JSON): {response}")
+            raise ValueError("No JSON found in response")
+
     except Exception as e:
         print(f"Error calling AI: {e}")
         return {"tips": ["Review your week.", "Plan next week.", "Rest well."], "productivity_score": 70, "consistency_score": 70}
@@ -285,16 +297,19 @@ def get_task_ai_analysis(task_data: dict):
     if not api_key:
         return "Focus on your task!"
     
-    chat = ChatGroq(temperature=0.7, groq_api_key=api_key, model_name="llama3-70b-8192")
+    chat = ChatGroq(temperature=0.7, groq_api_key=api_key, model_name="llama-3.3-70b-versatile")
     
     system = "You are a productivity coach. Provide a short, encouraging insight or tip for this specific task."
-    human = f"Task: {json.dumps(task_data)}"
     
-    prompt = ChatPromptTemplate.from_messages([("system", system), ("human", human)])
+    # Pass inputs as variables to avoid curly brace parsing issues
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system),
+        ("human", "Task: {task_data}")
+    ])
     chain = prompt | chat | StrOutputParser()
     
     try:
-        return chain.invoke({})
+        return chain.invoke({"task_data": json.dumps(task_data)})
     except Exception:
         return "Break it down into smaller steps!"
 
